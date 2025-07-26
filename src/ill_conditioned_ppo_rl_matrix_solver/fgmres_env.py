@@ -1,107 +1,84 @@
-import gymnasium as gym
-from gymnasium import spaces
+import gym
+from gym import spaces
 import numpy as np
-import scipy.sparse.linalg as spla
+from fgmres_solver import fgmres_step  # You will implement this
+from scipy.sparse.linalg import aslinearoperator
+
+from stable_baselines.common.env_checker import check_env
 
 
 class FGMRESEnv(gym.Env):
     """
-    FGMRES environment for solving Ax = b using block-preconditioned FGMRES.
-    Actions: block sizes (discrete or continuous)
-    State: residual vector r
-    Reward: negative residual norm after applying FGMRES step
+    Custom Environment for solving Ax = b with FGMRES using adaptive block QR preconditioning.
+    Action: block size for QR preconditioner.
+    Observation: residual vector (or norm) after applying FGMRES step.
     """
+    metadata = {"render.modes": ["console"]}
 
-    def __init__(self, A, b, max_iterations=100, convergence_threshold=1e-5, min_block_size=1):
-        super().__init__()
-        self.A = A  # System matrix (assumed dense or sparse matrix)
-        self.b = b  # RHS vector
+    def __init__(self, A, b, max_iters=100, tol=1e-6, min_block=1, max_block=200):
+        super(FGMRESEnv, self).__init__()
+
+        self.A = aslinearoperator(A)
+        self.b = b
         self.n = A.shape[0]
-        self.max_iterations = max_iterations
-        self.convergence_threshold = convergence_threshold
+        self.max_iters = max_iters
+        self.tol = tol
+        self.iter_count = 0
 
-        self.min_block_size = min_block_size
-        self.max_block_size = self.n
+        max_block = max(max_block, self.n) # the max block size should be the size of the matrix
 
-        # Observation: current residual vector (float32)
-        self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(self.n,), dtype=np.float32)
-
-        # Action: block size from min_block_size to max_block_size
-        self.action_space = spaces.Discrete(
-            self.max_block_size - self.min_block_size + 1)
-
-        # Internal state
-        self.iteration = 0
+        # Initial guess
         self.x = np.zeros_like(b)
-        self.current_residual_vector = self.b - self.A @ self.x
-        self.done = False
+        self.r = b - self.A @ self.x
 
-    def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
-        self.iteration = 0
+        # Action space: continuous block size
+        self.action_space = spaces.Box(
+            low=np.array([min_block]),
+            high=np.array([max_block]),
+            dtype=np.float32
+        )
+
+        # Observation: residual norm and optionally current iteration
+        self.observation_space = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(self.n,), dtype=np.float32
+        )
+
+    def reset(self):
         self.x = np.zeros_like(self.b)
-        self.current_residual_vector = self.b - self.A @ self.x
-        self.done = False
-        return self._get_obs(), {}
-
-    def _get_obs(self):
-        return self.current_residual_vector.astype(np.float32)
-
-    def _calculate_reward(self):
-        return -np.linalg.norm(self.current_residual_vector)
-
-    def _apply_block_qr_preconditioner(self, r, block_size):
-        """
-        Apply block QR preconditioning to the residual vector r.
-        This method partitions the matrix A into blocks of size block_size,
-        computes the QR decomposition for each block, and applies the preconditioner.
-        """
-        if block_size < self.min_block_size or block_size > self.max_block_size:
-            raise ValueError(f"Block size must be between {self.min_block_size} and {self.max_block_size}")
-        n = self.A.shape[0]
-        precond_r = np.zeros_like(r)
-        for start in range(0, n, block_size):
-            end = min(start + block_size, n)
-            A_block = self.A[start:end, start:end]
-            r_block = r[start:end]
-
-            # Ensure block is full-rank; otherwise skip
-            if A_block.shape[0] == 0 or A_block.shape[1] == 0:
-                continue
-
-            try:
-                Q, R = np.linalg.qr(A_block)
-                # Solve R y = Qᵀ r
-                y = np.linalg.solve(R, Q.T @ r_block)
-                precond_r[start:end] = y
-            except np.linalg.LinAlgError:
-                # Fallback to identity if QR fails
-                precond_r[start:end] = r_block
-
-        return precond_r
+        self.r = self.b - self.A @ self.x
+        self.iter_count = 0
+        return self.r.astype(np.float32)
 
     def step(self, action):
-        block_size = int(action)
+        # Clip and round action to valid block size
+        block_size = int(np.clip(action[0], self.action_space.low[0], self.action_space.high[0]))
 
-        # Compute residual: r = b - A @ x
-        r = self.b - self.A @ self.x
+        # Apply one FGMRES restart step with this block size
+        # self.x, self.r = fgmres_step(self.A, self.b, self.x, block_size)
 
-        # Apply QR preconditioner
-        z = self._apply_block_qr_preconditioner(r, block_size)
+        residual_norm = np.linalg.norm(self.r)
+        self.iter_count += 1
 
-        # Use z as search direction: x_new = x + z (simplified 1-step update)
-        self.x = self.x + z
+        # Reward is negative residual norm (want to minimize)
+        reward = -residual_norm
 
-        # New residual
-        self.current_residual_vector = self.b - self.A @ self.x
+        # Done if convergence or max iterations
+        done = residual_norm < self.tol or self.iter_count >= self.max_iters
 
-        reward = self._calculate_reward()
-        done = np.linalg.norm(self.current_residual_vector) < self.convergence_threshold
-        obs = self._get_obs()
+        info = {"block_size": block_size, "residual_norm": residual_norm}
 
-        return obs, reward, done, {}
+        return self.r.astype(np.float32), reward, done, info
 
-    def render(self):
+    def render(self, mode="console"):
+        if mode != "console":
+            raise NotImplementedError()
         print(
-            f"Step {self.iteration}, Residual Norm: {np.linalg.norm(self.current_residual_vector):.3e}")
+            f"Iteration: {self.iter_count}, Residual norm: {np.linalg.norm(self.r):.4e}")
+
+    def close(self):
+        pass
+
+
+env = FGMRESEnv()
+# If the environment don't follow the interface, an error will be thrown
+check_env(env, warn=True)
