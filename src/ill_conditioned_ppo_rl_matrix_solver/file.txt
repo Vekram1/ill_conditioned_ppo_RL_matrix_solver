@@ -1,0 +1,3 @@
+GMRES time: 2.96 seconds
+iterations: 51
+final residual norm: 9.88e-07

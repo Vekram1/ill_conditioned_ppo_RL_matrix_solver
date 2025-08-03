@@ -9,18 +9,20 @@ class matrix_A:
         self.shape = None
         self.sparsity = None
         self.matrix = None
-        self.load_matrix_A(filepath="poli.mat")
+        self.load_matrix_A(group="Grund", name="poli")
 
-    def load_matrix_A(self, filepath, name="poli"):
+    def load_matrix_A(self, group = "Grund",name="poli"):
+        filepath = f"{name}.mat"
         if not os.path.exists(filepath):
-            base_url = f"https://suitesparse-collection-website.herokuapp.com/mat/Grund/poli.mat"
+            base_url = f"https://suitesparse-collection-website.herokuapp.com/mat/{group}/{name}.mat"
             response = requests.get(base_url)
             with open(f"{name}.mat", 'wb') as f:
                 f.write(response.content)
-            print(f"Downloaded {name}.mat")
+                print(f"Downloaded {name}.mat")
         mat = loadmat(filepath)
-        A = mat['Problem'][0][0][1] 
-        self.matrix = csr_matrix(A)
+        A = mat['Problem'][0][0][1]
+        print(A)
+        self.matrix = csr_matrix(A.astype(np.float64)) 
         
     def get_sparsity(self):
         if self.matrix is not None:

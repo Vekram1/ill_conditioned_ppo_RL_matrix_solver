@@ -8,11 +8,11 @@ def gmres_solver(A, b, maxiter=None):
     def callback(rk):
         residuals.append(rk)
 
-    x, info = spla.gmres(A, b, restart=50, maxiter=maxiter, callback=callback)
+    x, info = spla.gmres(A, b, restart=10, rtol=1e-6, maxiter=maxiter, callback=callback, callback_type='legacy')
     if info != 0:
         raise ValueError(f"GMRES failed to converge, info={info}")
     final_residual = np.linalg.norm(b - A @ x)
-    print(f"Final residual norm: {final_residual:.2e}")
+    # print(f"Final residual norm: {final_residual:.2e}")
 
     # Plotting
     plt.figure(figsize=(8, 4))
@@ -24,4 +24,4 @@ def gmres_solver(A, b, maxiter=None):
     plt.tight_layout()
     plt.show()
 
-    return x
+    return x, residuals
