@@ -8,7 +8,7 @@ def gmres_solver(A, b, maxiter=None):
     def callback(rk):
         residuals.append(rk)
 
-    x, info = spla.gmres(A, b, restart=10, rtol=1e-6, maxiter=maxiter, callback=callback, callback_type='legacy')
+    x, info = spla.gmres(A, b, restart=10, rtol=1e-5, maxiter=maxiter, callback=callback, callback_type='legacy')
     if info != 0:
         raise ValueError(f"GMRES failed to converge, info={info}")
     final_residual = np.linalg.norm(b - A @ x)

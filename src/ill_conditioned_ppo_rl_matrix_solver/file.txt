@@ -1,3 +1,9 @@
-GMRES time: 2.96 seconds
-iterations: 51
-final residual norm: 9.88e-07
+GMRES time: 17.05 seconds
+iterations: 17
+final residual norm: 8.94e-06
+FGMRES with PPO time: 143.58 seconds
+FGMRES iterations: 19
+FGMRES final residual norm: 7.01e-06
+FGMRES fixed block time: 183.86 seconds
+FGMRES fixed block iterations: 19
+FGMRES fixed block final residual norm: 7.01e-06

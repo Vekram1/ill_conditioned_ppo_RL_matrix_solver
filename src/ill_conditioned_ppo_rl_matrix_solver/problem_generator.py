@@ -9,20 +9,49 @@ class matrix_A:
         self.shape = None
         self.sparsity = None
         self.matrix = None
-        self.load_matrix_A(group="Grund", name="poli")
+        #self.load_matrix_A(group="Grund", name="poli")
+        self.group = None
+        self.name = None
 
-    def load_matrix_A(self, group = "Grund",name="poli"):
-        filepath = f"{name}.mat"
-        if not os.path.exists(filepath):
+    def load_matrix_A(self, group="Grund", name="poli"):
+        # Download the file
+        self.group = group
+        self.name = name
+        print(self.group, self.name)
+        filepath_mat = f"{name}.mat"
+        if not os.path.exists(filepath_mat):
             base_url = f"https://suitesparse-collection-website.herokuapp.com/mat/{group}/{name}.mat"
+            print(f"Downloading {filepath_mat} from {base_url}")
             response = requests.get(base_url)
-            with open(f"{name}.mat", 'wb') as f:
+            with open(filepath_mat, 'wb') as f:
                 f.write(response.content)
-                print(f"Downloaded {name}.mat")
-        mat = loadmat(filepath)
-        A = mat['Problem'][0][0][1]
-        print(A)
-        self.matrix = csr_matrix(A.astype(np.float64)) 
+                print(f"Downloaded {filepath_mat}")
+
+        # Try loading the file. Some matrices in this collection are .mtx, not .mat.
+        try:
+            # First, try to load as a .mat file
+            mat = loadmat(filepath_mat)
+            problem = mat['Problem'][0, 0]
+            A = problem['A']
+            print(f"Successfully loaded {filepath_mat} as a .mat file.")
+        except (FileNotFoundError, KeyError):
+            # If that fails, assume it's a Matrix Market format and try to read it.
+            # This will handle the string header.
+            filepath_mtx = f"{name}.mtx"
+            if not os.path.exists(filepath_mtx):
+                print(f"{filepath_mat} failed to load, trying to download and load as .mtx")
+                base_url = f"https://suitesparse-collection-website.herokuapp.com/mat/{group}/{name}.mtx"
+                response = requests.get(base_url)
+                with open(filepath_mtx, 'wb') as f:
+                    f.write(response.content)
+                    print(f"Downloaded {filepath_mtx}")
+
+            A = mmread(filepath_mtx)
+            print(f"Successfully loaded {filepath_mtx} as a Matrix Market file.")
+
+        # Convert the matrix to CSR format and set the class variable
+        self.matrix = csr_matrix(A.astype(np.float64))
+        print(f"Matrix A loaded with dimensions: {self.matrix.shape}")
         
     def get_sparsity(self):
         if self.matrix is not None:
@@ -44,13 +73,37 @@ class matrix_A:
 
 class vector_b:
     def __init__(self, A):
+        A_group = A.group
+        A_name = A.name
+        self.vector = None
         if (A.get_matrix() is not None):
+            #self.get_b(A_group, A_name, A)
             self.generate_random_b(A.get_shape())
         else:
             self.vector = None
 
     def generate_random_b(self, n):
         self.vector = np.random.randn(n)
+    
+    def get_b(self, group, name, A=None):
+        filepath_mat_b = f"{name}_b.mat"
+        if not os.path.exists(filepath_mat_b):
+            base_url = f"https://suitesparse-collection-website.herokuapp.com/mat/{group}/{name}.mat"
+            response = requests.get(base_url)
+            with open(filepath_mat_b, 'wb') as f:
+                f.write(response.content)
+                print(f"Downloaded {filepath_mat_b}")
+                mat = loadmat(filepath_mat_b)
+                problem = mat['Problem'][0, 0]
+                try:
+                    b = problem['b']
+                    print(f"Successfully loaded {filepath_mat_b} as a .mat file.")
+                except ValueError:
+                    os.remove(filepath_mat_b)
+                    self.generate_random_b(A.get_shape())
+                    return
+        self.vector = b.flatten().astype(np.float64)
+
 
 
 
